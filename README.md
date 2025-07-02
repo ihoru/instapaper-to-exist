@@ -61,6 +61,8 @@ You can set these environment variables directly or create a `.env` file in the 
 Usage of ./exist-instapaper:
   -days int
         Number of days to consider for reading stats (default 3)
+  -today int
+        Value to set for today's stats (default 0)
   -verbose
         Enable verbose logging
   -clean

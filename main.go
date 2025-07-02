@@ -143,6 +143,8 @@ func main() {
 	// Parse command line arguments
 	daysFlag := flag.Int("days", 3, "Number of days to consider for reading stats")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose logging")
+	todayValueFlag := flag.Int("today", -1, "Value to set for today's stats")
+	yesterdayValueFlag := flag.Int("yesterday", -1, "Value to set for yesterdays's stats")
 	flag.Parse()
 
 	// Set up logging
@@ -206,9 +208,14 @@ func main() {
 			readingStats[today]++
 		}
 	}
-	readingStats[today] = 0
+	if *todayValueFlag >= 0 {
+		readingStats[today] = *todayValueFlag
+	}
 
-	log.Printf("Today's count = %d", readingStats[today])
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	if *yesterdayValueFlag >= 0 {
+		readingStats[yesterday] = *yesterdayValueFlag
+	}
 
 	// Prepare data for submission
 	var data []map[string]interface{}
@@ -217,6 +224,7 @@ func main() {
 		date := currentTime.AddDate(0, 0, -i)
 		dateStr := date.Format("2006-01-02")
 		count := readingStats[dateStr]
+		log.Printf("%s = %d", dateStr, count)
 		data = append(data, attrs.FormatSubmission(date, ExistAttributeName, count))
 	}
 

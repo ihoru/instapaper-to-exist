@@ -1,20 +1,18 @@
-package existio_instapaper
+package main
 
 import (
-	"bufio"
-	"encoding/gob"
 	"encoding/xml"
 	"flag"
 	"fmt"
+	"github.com/joho/godotenv"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ihoru/existio_instapaper/existio_client"
+	"github.com/ihoru/existio_instapaper/storage"
 )
 
 // Configuration variables
@@ -24,14 +22,7 @@ var (
 	ExistOAuth2Return    string
 	ExistAttributeName   string
 	InstapaperArchiveRSS string
-)
-
-// State directory and files
-var (
-	StateDir         string
-	SessionsFile     string
-	ArticlesFile     string
-	ReadingStatsFile string
+	storageInstance      *storage.Storage
 )
 
 // RSS feed structures
@@ -48,65 +39,10 @@ type Item struct {
 	GUID string `xml:"guid"`
 }
 
-// Sessions storage
-type Sessions struct {
-	Exist map[string]interface{}
-}
-
-// ReadingStats maps dates to article counts
-type ReadingStats map[string]int
-
-// Articles is a set of article URLs
-type Articles map[string]bool
-
-// loadEnvFile loads environment variables from a .env file
-func loadEnvFile(filename string) error {
-	file, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Skip comments and empty lines
-		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		// Parse key=value pairs
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		// Remove quotes if present
-		if len(value) > 1 && (value[0] == '"' && value[len(value)-1] == '"' ||
-			value[0] == '\'' && value[len(value)-1] == '\'') {
-			value = value[1 : len(value)-1]
-		}
-
-		// Set environment variable if not already set
-		if os.Getenv(key) == "" {
-			err := os.Setenv(key, value)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-
-	return scanner.Err()
-}
-
 func init() {
-	// Load environment variables from .env file if it exists
-	err := loadEnvFile(".env")
+	err := godotenv.Load()
 	if err != nil {
-		panic(err)
+		log.Fatal("Error loading .env file")
 	}
 
 	ExistClientID = os.Getenv("EXIST_CLIENT_ID")
@@ -121,148 +57,39 @@ func init() {
 	}
 	InstapaperArchiveRSS = os.Getenv("INSTAPAPER_ARCHIVE_RSS")
 
-	// Check required environment variables
-	if ExistClientID == "" || ExistClientSecret == "" || InstapaperArchiveRSS == "" {
-		fmt.Fprintln(os.Stderr, "Error: Required configuration variables missing. See the documentation.")
+	var missingVars []string
+	if ExistClientID == "" {
+		missingVars = append(missingVars, "EXIST_CLIENT_ID")
+	}
+	if ExistClientSecret == "" {
+		missingVars = append(missingVars, "EXIST_CLIENT_SECRET")
+	}
+	if InstapaperArchiveRSS == "" {
+		missingVars = append(missingVars, "INSTAPAPER_ARCHIVE_RSS")
+	}
+
+	if len(missingVars) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: Required environment variables are missing: %v\n", missingVars)
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Please ensure these variables are set either:")
+		fmt.Fprintln(os.Stderr, "1. As environment variables in your shell")
+		fmt.Fprintln(os.Stderr, "2. In a .env file in the same directory as this executable")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Example .env file content:")
+		fmt.Fprintln(os.Stderr, "EXIST_CLIENT_ID=your_client_id_here")
+		fmt.Fprintln(os.Stderr, "EXIST_CLIENT_SECRET=your_client_secret_here")
+		fmt.Fprintln(os.Stderr, "INSTAPAPER_ARCHIVE_RSS=https://instapaper.com/archive/rss/123/XXX")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "See the README.md file for detailed setup instructions.")
 		os.Exit(1)
 	}
 
-	// Set up state directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("Failed to get user home directory: %v", err)
-	}
-	StateDir = filepath.Join(homeDir, ".local", "state", "exist-instapaper-go")
-	if err := os.MkdirAll(StateDir, 0755); err != nil {
-		log.Fatalf("Failed to create state directory: %v", err)
-	}
-
-	SessionsFile = filepath.Join(StateDir, "sessions")
-	ArticlesFile = filepath.Join(StateDir, "articles")
-	ReadingStatsFile = filepath.Join(StateDir, "stats")
-}
-
-// LoadStates loads the state files
-func LoadStates() (Sessions, Articles, ReadingStats) {
-	sessions := Sessions{
-		Exist: make(map[string]interface{}),
-	}
-	articles := make(Articles)
-	readingStats := make(ReadingStats)
-
-	// Load sessions
-	if _, err := os.Stat(SessionsFile); err == nil {
-		file, err := os.Open(SessionsFile)
-		if err != nil {
-			log.Printf("Failed to open sessions file: %v", err)
-		} else {
-			defer file.Close()
-			decoder := gob.NewDecoder(file)
-			if err := decoder.Decode(&sessions); err != nil {
-				log.Printf("Failed to decode sessions: %v", err)
-				log.Printf("Removing corrupted sessions file and creating a new one.")
-				file.Close()            // Close the file before removing it
-				os.Remove(SessionsFile) // Remove the corrupted file
-				// Continue with empty sessions
-			}
-		}
-	}
-
-	// Load articles
-	if _, err := os.Stat(ArticlesFile); err == nil {
-		file, err := os.Open(ArticlesFile)
-		if err != nil {
-			log.Printf("Failed to open articles file: %v", err)
-		} else {
-			defer file.Close()
-			decoder := gob.NewDecoder(file)
-			if err := decoder.Decode(&articles); err != nil {
-				log.Printf("Failed to decode articles: %v", err)
-				log.Printf("Removing corrupted articles file and creating a new one.")
-				file.Close()            // Close the file before removing it
-				os.Remove(ArticlesFile) // Remove the corrupted file
-				// Continue with empty articles
-			}
-		}
-	}
-
-	// Load reading stats
-	if _, err := os.Stat(ReadingStatsFile); err == nil {
-		file, err := os.Open(ReadingStatsFile)
-		if err != nil {
-			log.Printf("Failed to open reading stats file: %v", err)
-		} else {
-			defer file.Close()
-			decoder := gob.NewDecoder(file)
-			if err := decoder.Decode(&readingStats); err != nil {
-				log.Printf("Failed to decode reading stats: %v", err)
-				log.Printf("Removing corrupted reading stats file and creating a new one.")
-				file.Close()                // Close the file before removing it
-				os.Remove(ReadingStatsFile) // Remove the corrupted file
-				// Continue with empty reading stats
-			}
-		}
-	}
-
-	return sessions, articles, readingStats
-}
-
-// SaveStates saves the state files
-func SaveStates(sessions *Sessions, articles *Articles, readingStats *ReadingStats) {
-	// Save sessions
-	if sessions != nil {
-		file, err := os.Create(SessionsFile)
-		if err != nil {
-			log.Printf("Failed to create sessions file: %v", err)
-		} else {
-			defer file.Close()
-			encoder := gob.NewEncoder(file)
-			if err := encoder.Encode(sessions); err != nil {
-				log.Printf("Failed to encode sessions: %v", err)
-				// If encoding fails, remove the potentially corrupted file
-				file.Close()
-				os.Remove(SessionsFile)
-			}
-		}
-	}
-
-	// Save articles
-	if articles != nil {
-		file, err := os.Create(ArticlesFile)
-		if err != nil {
-			log.Printf("Failed to create articles file: %v", err)
-		} else {
-			defer file.Close()
-			encoder := gob.NewEncoder(file)
-			if err := encoder.Encode(articles); err != nil {
-				log.Printf("Failed to encode articles: %v", err)
-				// If encoding fails, remove the potentially corrupted file
-				file.Close()
-				os.Remove(ArticlesFile)
-			}
-		}
-	}
-
-	// Save reading stats
-	if readingStats != nil {
-		file, err := os.Create(ReadingStatsFile)
-		if err != nil {
-			log.Printf("Failed to create reading stats file: %v", err)
-		} else {
-			defer file.Close()
-			encoder := gob.NewEncoder(file)
-			if err := encoder.Encode(readingStats); err != nil {
-				log.Printf("Failed to encode reading stats: %v", err)
-				// If encoding fails, remove the potentially corrupted file
-				file.Close()
-				os.Remove(ReadingStatsFile)
-			}
-		}
-	}
+	// Initialize storage
+	storageInstance = storage.NewStorage("exist-instapaper-go")
 }
 
 // GetExistSession initializes and authenticates with Exist.io
-func GetExistSession(sessions *Sessions, client *http.Client) (*existio_client.OAuth2, error) {
+func GetExistSession(sessions *storage.Sessions, client *http.Client) (*existio_client.OAuth2, error) {
 	auth := existio_client.NewOAuth2(
 		ExistOAuth2Return,
 		ExistClientID,
@@ -289,12 +116,12 @@ func GetExistSession(sessions *Sessions, client *http.Client) (*existio_client.O
 	sessions.Exist["refresh_token"] = auth.RefreshToken
 	sessions.Exist["refresh_lastdate"] = auth.LastRefresh
 
-	SaveStates(sessions, nil, nil)
+	storage.SaveStates(storageInstance, sessions, nil, nil)
 	return auth, nil
 }
 
 // GetExistAttrs initializes the Exist.io attributes client
-func GetExistAttrs(sessions *Sessions, client *http.Client) (*existio_client.Attrs, error) {
+func GetExistAttrs(sessions *storage.Sessions, client *http.Client) (*existio_client.Attrs, error) {
 	accessToken, ok := sessions.Exist["access_token"].(string)
 	if !ok {
 		return nil, fmt.Errorf("access token not found in sessions")
@@ -305,7 +132,7 @@ func GetExistAttrs(sessions *Sessions, client *http.Client) (*existio_client.Att
 		return nil, fmt.Errorf("failed to acquire label: %v", err)
 	}
 
-	SaveStates(sessions, nil, nil)
+	storage.SaveStates(storageInstance, sessions, nil, nil)
 	return attrs, nil
 }
 
@@ -329,7 +156,7 @@ func main() {
 	}
 
 	// Load states
-	sessions, articles, readingStats := LoadStates()
+	sessions, articles, readingStats := storage.LoadStates(storageInstance)
 
 	// Initialize HTTP client
 	client := existio_client.StartSession()
@@ -377,6 +204,7 @@ func main() {
 			readingStats[today]++
 		}
 	}
+	readingStats[today] = 0
 
 	log.Printf("Today's count = %d", readingStats[today])
 
@@ -396,5 +224,5 @@ func main() {
 	}
 
 	// Save states
-	SaveStates(nil, &articles, &readingStats)
+	storage.SaveStates(storageInstance, nil, &articles, &readingStats)
 }

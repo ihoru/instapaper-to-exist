@@ -4,8 +4,8 @@ import (
 	"encoding/xml"
 	"flag"
 	"fmt"
+	"github.com/ihoru/existio_instapaper/config"
 	"github.com/ihoru/existio_instapaper/state"
-	"github.com/joho/godotenv"
 	"io"
 	"log"
 	"net/http"
@@ -16,14 +16,10 @@ import (
 	"github.com/ihoru/existio_instapaper/storage"
 )
 
-// Configuration variables
+// Global variables
 var (
-	ExistClientID        string
-	ExistClientSecret    string
-	ExistOAuth2Return    string
-	ExistAttributeName   string
-	InstapaperArchiveRSS string
-	storageInstance      *storage.Storage
+	appConfig       *config.Config
+	storageInstance *storage.Storage
 )
 
 // RSS feed structures
@@ -40,49 +36,12 @@ type Item struct {
 	GUID string `xml:"guid"`
 }
 
-//goland:noinspection GoUnhandledErrorResult
 func init() {
-	err := godotenv.Load()
+	var err error
+	appConfig, err = config.LoadConfig()
 	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	ExistClientID = os.Getenv("EXIST_CLIENT_ID")
-	ExistClientSecret = os.Getenv("EXIST_CLIENT_SECRET")
-	ExistOAuth2Return = os.Getenv("EXIST_OAUTH2_RETURN")
-	if ExistOAuth2Return == "" {
-		ExistOAuth2Return = "http://localhost:9009/"
-	}
-	ExistAttributeName = os.Getenv("EXIST_ATTRIBUTE_NAME")
-	if ExistAttributeName == "" {
-		ExistAttributeName = "Articles read"
-	}
-	InstapaperArchiveRSS = os.Getenv("INSTAPAPER_ARCHIVE_RSS")
-
-	var missingVars []string
-	if ExistClientID == "" {
-		missingVars = append(missingVars, "EXIST_CLIENT_ID")
-	}
-	if ExistClientSecret == "" {
-		missingVars = append(missingVars, "EXIST_CLIENT_SECRET")
-	}
-	if InstapaperArchiveRSS == "" {
-		missingVars = append(missingVars, "INSTAPAPER_ARCHIVE_RSS")
-	}
-
-	if len(missingVars) > 0 {
-		fmt.Fprintf(os.Stderr, "Error: Required environment variables are missing: %v\n", missingVars)
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Please ensure these variables are set either:")
-		fmt.Fprintln(os.Stderr, "1. As environment variables in your shell")
-		fmt.Fprintln(os.Stderr, "2. In a .env file in the same directory as this executable")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Example .env file content:")
-		fmt.Fprintln(os.Stderr, "EXIST_CLIENT_ID=your_client_id_here")
-		fmt.Fprintln(os.Stderr, "EXIST_CLIENT_SECRET=your_client_secret_here")
-		fmt.Fprintln(os.Stderr, "INSTAPAPER_ARCHIVE_RSS=https://instapaper.com/archive/rss/123/XXX")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "See the README.md file for detailed setup instructions.")
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		config.PrintMissingVarsHelp()
 		os.Exit(1)
 	}
 
@@ -93,9 +52,9 @@ func init() {
 // GetExistSession initializes and authenticates with Exist.io
 func GetExistSession(sessions *state.Sessions, client *http.Client) (*existio_client.OAuth2, error) {
 	auth := existio_client.NewOAuth2(
-		ExistOAuth2Return,
-		ExistClientID,
-		ExistClientSecret,
+		appConfig.ExistOAuth2Return,
+		appConfig.ExistClientID,
+		appConfig.ExistClientSecret,
 		"media_write",
 		client,
 	)
@@ -130,7 +89,7 @@ func GetExistAttrs(sessions *state.Sessions, client *http.Client) (*existio_clie
 	}
 
 	attrs := existio_client.NewAttrs(accessToken, 5*time.Second, client)
-	if err := attrs.AcquireLabel("media", ExistAttributeName, existio_client.ValueTypeInteger, false); err != nil {
+	if err := attrs.AcquireLabel("media", appConfig.ExistAttributeName, existio_client.ValueTypeInteger, false); err != nil {
 		return nil, fmt.Errorf("failed to acquire label: %v", err)
 	}
 
@@ -141,10 +100,10 @@ func GetExistAttrs(sessions *state.Sessions, client *http.Client) (*existio_clie
 // Main function
 func main() {
 	// Parse command line arguments
-	daysFlag := flag.Int("days", 3, "Number of days to consider for reading stats")
+	daysFlag := flag.Int("days", 3, "Number of days to consider for changing stats")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose logging")
-	todayValueFlag := flag.Int("today", -1, "Value to set for today's stats")
-	yesterdayValueFlag := flag.Int("yesterday", -1, "Value to set for yesterdays's stats")
+	todayValueFlag := flag.Int("today", -1, "Value to set for today's stats [-1 to skip]")
+	yesterdayValueFlag := flag.Int("yesterday", -1, "Value to set for yesterdays's stats [-1 to skip]")
 	flag.Parse()
 
 	// Set up logging
@@ -178,7 +137,7 @@ func main() {
 	}
 
 	// Fetch Instapaper RSS feed
-	resp, err := client.Get(InstapaperArchiveRSS)
+	resp, err := client.Get(appConfig.InstapaperArchiveRSS)
 	if err != nil {
 		log.Fatalf("Failed to fetch Instapaper feed: %v", err)
 	}
@@ -225,7 +184,7 @@ func main() {
 		dateStr := date.Format("2006-01-02")
 		count := readingStats[dateStr]
 		log.Printf("%s = %d", dateStr, count)
-		data = append(data, attrs.FormatSubmission(date, ExistAttributeName, count))
+		data = append(data, attrs.FormatSubmission(date, appConfig.ExistAttributeName, count))
 	}
 
 	// Submit data to Exist.io

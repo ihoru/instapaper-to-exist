@@ -2,6 +2,7 @@ package existio_client
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -80,7 +81,7 @@ func (o *OAuth2) AwaitExistOAuth2Tokens() error {
 		w.Write([]byte("OK!\n"))
 		go func() {
 			err := o.GetToken(code)
-			o.AuthCompleted <- (err == nil)
+			o.AuthCompleted <- err == nil
 		}()
 	})
 
@@ -90,7 +91,7 @@ func (o *OAuth2) AwaitExistOAuth2Tokens() error {
 	}
 
 	go func() {
-		if err := o.Server.ListenAndServe(); err != http.ErrServerClosed {
+		if err := o.Server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			fmt.Printf("Server error: %v\n", err)
 		}
 	}()

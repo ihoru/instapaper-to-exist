@@ -13,17 +13,6 @@ func init() {
 	gob.Register(time.Time{})
 }
 
-// Sessions storage
-type Sessions struct {
-	Exist map[string]interface{}
-}
-
-// ReadingStats maps dates to article counts
-type ReadingStats map[string]int
-
-// Articles is a set of article URLs
-type Articles map[string]bool
-
 // Storage handles persistent storage operations
 type Storage struct {
 	stateDir string
@@ -88,37 +77,4 @@ func (s *Storage) Save(fileName string, data interface{}) error {
 		return err
 	}
 	return nil
-}
-
-// LoadStates loads the state files (for backward compatibility)
-func LoadStates(storage *Storage) (Sessions, Articles, ReadingStats) {
-	sessions := Sessions{
-		Exist: make(map[string]interface{}),
-	}
-	articles := make(Articles)
-	readingStats := make(ReadingStats)
-
-	storage.Load("sessions", &sessions)
-	storage.Load("articles", &articles)
-	storage.Load("stats", &readingStats)
-
-	return sessions, articles, readingStats
-}
-
-// SaveStates saves the state files (for backward compatibility)
-func SaveStates(storage *Storage, sessions *Sessions, articles *Articles, readingStats *ReadingStats) {
-	// Save sessions
-	if sessions != nil {
-		storage.Save("sessions", sessions)
-	}
-
-	// Save articles
-	if articles != nil {
-		storage.Save("articles", articles)
-	}
-
-	// Save reading stats
-	if readingStats != nil {
-		storage.Save("stats", readingStats)
-	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"flag"
 	"fmt"
+	"github.com/ihoru/existio_instapaper/state"
 	"github.com/joho/godotenv"
 	"io"
 	"log"
@@ -39,6 +40,7 @@ type Item struct {
 	GUID string `xml:"guid"`
 }
 
+//goland:noinspection GoUnhandledErrorResult
 func init() {
 	err := godotenv.Load()
 	if err != nil {
@@ -89,7 +91,7 @@ func init() {
 }
 
 // GetExistSession initializes and authenticates with Exist.io
-func GetExistSession(sessions *storage.Sessions, client *http.Client) (*existio_client.OAuth2, error) {
+func GetExistSession(sessions *state.Sessions, client *http.Client) (*existio_client.OAuth2, error) {
 	auth := existio_client.NewOAuth2(
 		ExistOAuth2Return,
 		ExistClientID,
@@ -98,32 +100,32 @@ func GetExistSession(sessions *storage.Sessions, client *http.Client) (*existio_
 		client,
 	)
 
-	if existData, ok := sessions.Exist["refresh_token"]; ok {
-		auth.RefreshToken = existData.(string)
+	if sessions.Exist.RefreshToken != "" {
+		auth.RefreshToken = sessions.Exist.RefreshToken
 	}
-	if existData, ok := sessions.Exist["access_token"]; ok {
-		auth.AccessToken = existData.(string)
+	if sessions.Exist.AccessToken != "" {
+		auth.AccessToken = sessions.Exist.AccessToken
 	}
-	if existData, ok := sessions.Exist["refresh_lastdate"]; ok {
-		auth.LastRefresh = existData.(time.Time)
+	if !sessions.Exist.LastRefresh.IsZero() {
+		auth.LastRefresh = sessions.Exist.LastRefresh
 	}
 
 	if err := auth.EvaluateTokens(); err != nil {
 		return nil, fmt.Errorf("failed to evaluate tokens: %v", err)
 	}
 
-	sessions.Exist["access_token"] = auth.AccessToken
-	sessions.Exist["refresh_token"] = auth.RefreshToken
-	sessions.Exist["refresh_lastdate"] = auth.LastRefresh
+	sessions.Exist.AccessToken = auth.AccessToken
+	sessions.Exist.RefreshToken = auth.RefreshToken
+	sessions.Exist.LastRefresh = auth.LastRefresh
 
-	storage.SaveStates(storageInstance, sessions, nil, nil)
+	state.SaveStates(storageInstance, sessions, nil, nil)
 	return auth, nil
 }
 
 // GetExistAttrs initializes the Exist.io attributes client
-func GetExistAttrs(sessions *storage.Sessions, client *http.Client) (*existio_client.Attrs, error) {
-	accessToken, ok := sessions.Exist["access_token"].(string)
-	if !ok {
+func GetExistAttrs(sessions *state.Sessions, client *http.Client) (*existio_client.Attrs, error) {
+	accessToken := sessions.Exist.AccessToken
+	if accessToken == "" {
 		return nil, fmt.Errorf("access token not found in sessions")
 	}
 
@@ -132,7 +134,7 @@ func GetExistAttrs(sessions *storage.Sessions, client *http.Client) (*existio_cl
 		return nil, fmt.Errorf("failed to acquire label: %v", err)
 	}
 
-	storage.SaveStates(storageInstance, sessions, nil, nil)
+	state.SaveStates(storageInstance, sessions, nil, nil)
 	return attrs, nil
 }
 
@@ -156,7 +158,7 @@ func main() {
 	}
 
 	// Load states
-	sessions, articles, readingStats := storage.LoadStates(storageInstance)
+	sessions, articles, readingStats := state.LoadStates(storageInstance)
 
 	// Initialize HTTP client
 	client := existio_client.StartSession()
@@ -224,5 +226,5 @@ func main() {
 	}
 
 	// Save states
-	storage.SaveStates(storageInstance, nil, &articles, &readingStats)
+	state.SaveStates(storageInstance, &sessions, &articles, &readingStats)
 }

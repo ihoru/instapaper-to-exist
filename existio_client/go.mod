@@ -1,3 +1,3 @@
-module github.com/ihoru/existio_instapaper/existio_client
+module github.com/ihoru/instapaper-to-exist/existio_client
 
 go 1.24

@@ -4,16 +4,16 @@ import (
 	"encoding/xml"
 	"flag"
 	"fmt"
-	"github.com/ihoru/existio_instapaper/config"
-	"github.com/ihoru/existio_instapaper/state"
+	"github.com/ihoru/instapaper-to-exist/config"
+	"github.com/ihoru/instapaper-to-exist/state"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/ihoru/existio_instapaper/existio_client"
-	"github.com/ihoru/existio_instapaper/storage"
+	"github.com/ihoru/instapaper-to-exist/existio_client"
+	"github.com/ihoru/instapaper-to-exist/storage"
 )
 
 // Global variables
@@ -46,7 +46,7 @@ func init() {
 	}
 
 	// Initialize storage
-	storageInstance = storage.NewStorage("exist-instapaper-go")
+	storageInstance = storage.NewStorage("instapaper-to-exist")
 }
 
 // GetExistSession initializes and authenticates with Exist.io

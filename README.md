@@ -5,48 +5,55 @@ Quantify your everyday reading!
 
 This is a Go implementation of the original Python project.
 
-## Setup
-
-Install a copy of the repository:
-
-```sh
-git clone https://github.com/ihoru/existio_instapaper.git
-```
-
-## Build
-
-Navigate to the golang directory and build the application:
-
-```sh
-cd existio_instapaper
-go build -o existio_instapaper
-```
-
 ## How it works
 
-The program submits data to Exist and then exits. It needs to be run at least
+The program submits data to Exist.io and then exits. It needs to be run at least
 once per day (a few minutes before midnight in your local time zone). On every
 run, it checks for and counts new articles in your Instapaper archive, and
-submits that count to Exist.
+submits that count to Exist.io.
 
-It is recommended that you use the provided systemd unit files to manage the
-program's lifecycle. It will run the program every two hours during the day,
-plus just before midnight.
+It is recommended that you set up a scheduled task (cron job) to run the program periodically
+throughout the day, plus just before midnight to ensure all articles are counted.
+
+## Installation
+
+### Option 1: Clone and Build
+
+```sh
+# Clone the repository
+git clone https://github.com/ihoru/instapaper-to-exist.git
+
+# Navigate to the project directory
+cd instapaper-to-exist
+
+# Build the application
+go build -o instapaper-to-exist
+```
+
+### Option 2: Using Go Install
+
+```sh
+go install github.com/ihoru/instapaper-to-exist@latest
+```
 
 ## Configuration
 
-Provide configuration options as environmental variables. All configuration
-options are required.
+Provide configuration options as environmental variables. The following variables are required:
 
 ```
-EXIST_CLIENT_ID=
-EXIST_CLIENT_SECRET=
-EXIST_OAUTH2_RETURN="http://localhost:9009/"
-INSTAPAPER_ARCHIVE_RSS=  
-# Example: https://instapaper.com/archive/rss/123/XXX
+EXIST_CLIENT_ID=            # Your Exist.io client ID
+EXIST_CLIENT_SECRET=        # Your Exist.io client secret
+INSTAPAPER_ARCHIVE_RSS=     # Your Instapaper archive RSS URL
 ```
 
-You can obtain the two first values and supply the third by
+The following variables are optional with defaults:
+
+```
+EXIST_OAUTH2_RETURN="http://localhost:9009/"  # OAuth2 return URL
+EXIST_ATTRIBUTE_NAME="Articles read"          # Name of the attribute in Exist.io
+```
+
+You can obtain the client ID and secret by
 [registering your client as an Exist app](https://exist.io/account/apps/edit/).
 
 You can find your Instapaper archive RSS link by logging into your Instapaper
@@ -58,31 +65,48 @@ You can set these environment variables directly or create a `.env` file in the 
 ## Command Line Options
 
 ```
-Usage of ./exist-instapaper:
+Usage of ./instapaper-to-exist:
   -days int
-        Number of days to consider for reading stats (default 3)
-  -today int
-        Value to set for today's stats (default 0)
+        Number of days to consider for changing stats (default 3)
   -verbose
         Enable verbose logging
-  -clean
-        Clean all state files and exit
+  -today int
+        Value to set for today's stats [-1 to skip] (default -1)
+  -yesterday int
+        Value to set for yesterday's stats [-1 to skip] (default -1)
 ```
+
+## State Management
+
+The application stores state information in the user's home directory under `~/.local/state/instapaper-to-exist/`. 
+This includes:
+
+- OAuth2 tokens for Exist.io
+- List of processed articles
+- Reading statistics by date
+
+If you encounter issues with corrupted state files, the application will automatically remove them and create new ones.
 
 ## Troubleshooting
 
-If you encounter an error like `gob: encoded unsigned integer out of range` when running the application, it means there's an issue with the state files. This can happen if you've updated the application or if the files have become corrupted.
+If you encounter an error like `gob: encoded unsigned integer out of range` when running the application, it means there's an issue with the state files. The application should handle this automatically by removing the corrupted files and creating new ones.
 
-You can resolve this by running the application with the `-clean` flag to remove all state files:
+If you continue to experience issues, you can manually remove the state files:
 
 ```sh
-./exist-instapaper -clean
+rm -rf ~/.local/state/instapaper-to-exist/
 ```
 
-This will remove all state files and exit. The next time you run the application normally, it will create fresh state files.
+## Scheduling with Cron
 
-## systemd
+To run the application periodically, you can set up a cron job. For example, to run it every two hours during the day and just before midnight:
 
-The systemd directory contains example systemd service unit files for running the
-program periodically as a systemd service. You may need to adjust the paths to the
-`ExecStart` program and the `EnvironmentFile` file where you store your config.
+```
+# Run every two hours from 8am to 10pm
+0 8,10,12,14,16,18,20,22 * * * /path/to/instapaper-to-exist
+
+# Run at 11:55pm to capture end-of-day stats
+55 23 * * * /path/to/instapaper-to-exist
+```
+
+Make sure to set the environment variables in your crontab or reference a script that sets them.

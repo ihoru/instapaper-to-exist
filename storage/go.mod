@@ -1,3 +1,3 @@
-module github.com/ihoru/existio_instapaper/storage
+module github.com/ihoru/instapaper-to-exist/storage
 
 go 1.24

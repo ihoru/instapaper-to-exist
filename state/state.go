@@ -2,7 +2,8 @@ package state
 
 import (
 	"encoding/gob"
-	store "github.com/ihoru/existio_instapaper/storage"
+	"github.com/ihoru/instapaper-to-exist/existio_client"
+	store "github.com/ihoru/instapaper-to-exist/storage"
 	"time"
 )
 
@@ -11,16 +12,9 @@ func init() {
 	gob.Register(time.Time{})
 }
 
-// ExistAuth stores authentication data for Exist.io
-type ExistAuth struct {
-	AccessToken  string
-	RefreshToken string
-	LastRefresh  time.Time
-}
-
 // Sessions storage
 type Sessions struct {
-	Exist ExistAuth
+	Exist existio_client.ExistAuth
 }
 
 // ReadingStats maps dates to article counts
@@ -32,7 +26,7 @@ type Articles map[string]bool
 // LoadStates loads the state files (for backward compatibility)
 func LoadStates(storage *store.Storage) (Sessions, Articles, ReadingStats) {
 	sessions := Sessions{
-		Exist: ExistAuth{},
+		Exist: existio_client.ExistAuth{},
 	}
 	articles := make(Articles)
 	readingStats := make(ReadingStats)
